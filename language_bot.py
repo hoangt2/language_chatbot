@@ -1,3 +1,5 @@
+from dotenv.main import load_dotenv
+import os
 import logging
 import openai
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -8,8 +10,11 @@ from telegram.ext import (ApplicationBuilder,
                           MessageHandler,
                           ConversationHandler)
 
+import urllib.request
+from moviepy.editor import AudioFileClip
 
-
+load_dotenv()
+openai.api_key = os.environ['OPENAI_API_KEY']
 
 ### LOGGING
 logging.basicConfig(
@@ -34,7 +39,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ### GENERIC CHAT
 
-openai.api_key = "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"
+
 messages = [{"role": "system", "content": "You are a Finnish language teacher named Anna"}]
 
 async def generic_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -105,6 +110,26 @@ async def text_to_translate(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     return TEXT_TO_TRANSLATE
 
+async def voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("User sent a voice message")
+    await update.message.reply_text("I've received a voice message! Please give me a second to respond :)")
+    file_info = await context.bot.getFile(update.message.voice.file_id)
+    urllib.request.urlretrieve(file_info.file_path, "voice_message.oga")
+    audio_clip = AudioFileClip("voice_message.oga")
+    audio_clip.write_audiofile("voice_message.mp3")
+    audio_file = open("voice_message.mp3", "rb")
+    transcript = openai.Audio.transcribe("whisper-1", audio_file).text
+    
+    await update.message.reply_text(text=f"*[You]:* _{transcript}_", parse_mode='MARKDOWN')
+    messages.append({"role": "user", "content": transcript})
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=messages
+    )
+    ChatGPT_reply = response["choices"][0]["message"]["content"]
+    await update.message.reply_text(text=f"*[Bot]:* {ChatGPT_reply}", parse_mode='MARKDOWN')
+    messages.append({"role": "assistant", "content": ChatGPT_reply})
+
 
 ### End the chat
 async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -117,7 +142,7 @@ async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 def main() -> None:
-    application = ApplicationBuilder().token('6078244379:AAFXxyhuMewvk6F3ZuY1NrhfUh_SC4AozmE').build()
+    application = ApplicationBuilder().token(os.environ['TELEGRAM_BOT_TOKEN']).build()
     
     start_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -126,7 +151,9 @@ def main() -> None:
                 MessageHandler(filters.Regex('^(Generic Chat)$'), generic_chat),
                 MessageHandler(filters.Regex('^(Translation)$'), translate),
             ],
-            CHAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, generic_chat)],
+            CHAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, generic_chat),
+                   MessageHandler(filters.VOICE, voice_message)
+                   ],
             LANGUAGE: [MessageHandler(filters.Regex("^(🇫🇮 Finnish|🇬🇧 English|🇮🇹 Italian)$"), language)],
             TEXT_TO_TRANSLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_translate)],
         },
