@@ -2,6 +2,7 @@ from dotenv.main import load_dotenv
 import os
 import logging
 import openai
+import replicate
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (ApplicationBuilder, 
                           ContextTypes, 
@@ -110,6 +111,7 @@ async def text_to_translate(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     return TEXT_TO_TRANSLATE
 
+### VOICE MESSAGE
 async def voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("User sent a voice message")
     await update.message.reply_text("I've received a voice message! Please give me a second to respond :)")
@@ -130,6 +132,26 @@ async def voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text=f"*[Bot]:* {ChatGPT_reply}", parse_mode='MARKDOWN')
     messages.append({"role": "assistant", "content": ChatGPT_reply})
 
+### IMAGE CAPTION
+async def image_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("User sent a photo")
+    await update.message.reply_text("I have received a photo, let me give you the caption about it")
+    file_info = await context.bot.getFile(update.message.photo[3].file_id) #0 for thumbnail and 3 for bigger size
+    urllib.request.urlretrieve(file_info.file_path, 'photo.jpg')
+
+    caption_ENG = replicate.run(
+    "salesforce/blip:2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d0ac4746",
+    input={"image": open("photo.jpg", "rb")}
+    )
+    translation = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{'role':'system','content': 'Translate the text to Finnish and Italian, put it in this format: ENG: <original text> \n FI: <text> \n IT: <text>'},
+                  {'role':'user','content': caption_ENG}
+                  ]
+    )
+    caption = translation["choices"][0]["message"]["content"]
+    logger.info("Response from ChatGPT: %s", caption)
+    await update.message.reply_text(text=f"{caption}", parse_mode= 'MARKDOWN')
 
 ### End the chat
 async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -152,7 +174,8 @@ def main() -> None:
                 MessageHandler(filters.Regex('^(Translation)$'), translate),
             ],
             CHAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, generic_chat),
-                   MessageHandler(filters.VOICE, voice_message)
+                   MessageHandler(filters.VOICE, voice_message),
+                   MessageHandler(filters.PHOTO, image_caption)
                    ],
             LANGUAGE: [MessageHandler(filters.Regex("^(🇫🇮 Finnish|🇬🇧 English|🇮🇹 Italian)$"), language)],
             TEXT_TO_TRANSLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_translate)],
