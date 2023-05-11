@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 
 ### START MENU
 
-MODE, CHAT, LANGUAGE, TEXT_TO_TRANSLATE, PHOTO_CAPTION = range (5)
+MODE, CHAT, MENU_LANGUAGE, TEXT_TO_TRANSLATE, MENU_PHOTO_CAPTION, PHOTO_CAPTION = range (6)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     reply_keyboard = [["Generic Chat", "Translation", "Photo Caption"]]
     await update.message.reply_text(
-        "Hello, I am your Finnish languague trainer. \n Choose the chat mode:",
+        "Hello, I am your Finnish languague trainer.\n\nYou can send a text to translate, a photo, a voice message or just simply chat\n\nChoose the chat mode:",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard, one_time_keyboard=True, input_field_placeholder="Chat or Translation?"
         ),
@@ -76,10 +76,10 @@ async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         ),
     )
 
-    return LANGUAGE
+    return MENU_LANGUAGE
 
 
-async def language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def _start_translation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Stores the selected language and ask for the text to translate"""
     translation_language = update.message.text
 
@@ -132,7 +132,15 @@ async def voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text=f"*[Bot]:* {ChatGPT_reply}", parse_mode='MARKDOWN')
     messages.append({"role": "assistant", "content": ChatGPT_reply})
 
-### IMAGE CAPTION
+### PHOTO CAPTION
+async def _start_photo_caption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("User started photo caption")
+    await update.message.reply_text(
+        "You can send me photo and I will give it a caption",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return PHOTO_CAPTION
+
 async def photo_caption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("User sent a photo")
     await update.message.reply_text("I've received a photo, let me give you the caption about it")
@@ -174,16 +182,19 @@ def main() -> None:
             MODE: [
                 MessageHandler(filters.Regex('^(Generic Chat)$'), generic_chat),
                 MessageHandler(filters.Regex('^(Translation)$'), translate),
-                MessageHandler(filters.Regex('^(Photo Caption)$'), photo_caption),
+                MessageHandler(filters.Regex('^(Photo Caption)$'), _start_photo_caption),
             ],
             CHAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, generic_chat),
-                   MessageHandler(filters.VOICE, voice_message),
-                   MessageHandler(filters.PHOTO, photo_caption)
+                   MessageHandler(filters.VOICE & ~filters.COMMAND, voice_message),
+                   MessageHandler(filters.PHOTO & ~filters.COMMAND, photo_caption)
                    ],
-            LANGUAGE: [MessageHandler(filters.Regex("^(🇫🇮 Finnish|🇬🇧 English|🇮🇹 Italian)$"), language)],
+            MENU_LANGUAGE: [MessageHandler(filters.Regex("^(🇫🇮 Finnish|🇬🇧 English|🇮🇹 Italian)$"), _start_translation)],
             TEXT_TO_TRANSLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_translate)],
+            PHOTO_CAPTION: [MessageHandler(filters.PHOTO & ~filters.COMMAND, photo_caption)],
         },
-        fallbacks=[CommandHandler("quit", quit)],
+        fallbacks=[CommandHandler("quit", quit),
+                   CommandHandler('menu', start),
+                   CommandHandler('caption', _start_photo_caption)],
     )
 
     application.add_handler(start_handler)
