@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 
 ### START MENU
 
-MODE, CHAT, LANGUAGE, TEXT_TO_TRANSLATE = range (4)
+MODE, CHAT, LANGUAGE, TEXT_TO_TRANSLATE, PHOTO_CAPTION = range (5)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply_keyboard = [["Generic Chat", "Translation"]]
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    reply_keyboard = [["Generic Chat", "Translation", "Photo Caption"]]
     await update.message.reply_text(
-        "Hello, I am your Finnish languague trainer. Choose the chat mode:",
+        "Hello, I am your Finnish languague trainer. \n Choose the chat mode:",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard, one_time_keyboard=True, input_field_placeholder="Chat or Translation?"
         ),
@@ -43,7 +43,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 messages = [{"role": "system", "content": "You are a Finnish language teacher named Anna"}]
 
-async def generic_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def generic_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     logger.info("User: %s", update.message.text)
 
@@ -133,9 +133,9 @@ async def voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     messages.append({"role": "assistant", "content": ChatGPT_reply})
 
 ### IMAGE CAPTION
-async def image_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def photo_caption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("User sent a photo")
-    await update.message.reply_text("I have received a photo, let me give you the caption about it")
+    await update.message.reply_text("I've received a photo, let me give you the caption about it")
     file_info = await context.bot.getFile(update.message.photo[3].file_id) #0 for thumbnail and 3 for bigger size
     urllib.request.urlretrieve(file_info.file_path, 'photo.jpg')
 
@@ -152,6 +152,8 @@ async def image_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = translation["choices"][0]["message"]["content"]
     logger.info("Response from ChatGPT: %s", caption)
     await update.message.reply_text(text=f"{caption}", parse_mode= 'MARKDOWN')
+
+    return PHOTO_CAPTION
 
 ### End the chat
 async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -172,10 +174,11 @@ def main() -> None:
             MODE: [
                 MessageHandler(filters.Regex('^(Generic Chat)$'), generic_chat),
                 MessageHandler(filters.Regex('^(Translation)$'), translate),
+                MessageHandler(filters.Regex('^(Photo Caption)$'), photo_caption),
             ],
             CHAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, generic_chat),
                    MessageHandler(filters.VOICE, voice_message),
-                   MessageHandler(filters.PHOTO, image_caption)
+                   MessageHandler(filters.PHOTO, photo_caption)
                    ],
             LANGUAGE: [MessageHandler(filters.Regex("^(🇫🇮 Finnish|🇬🇧 English|🇮🇹 Italian)$"), language)],
             TEXT_TO_TRANSLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_translate)],
