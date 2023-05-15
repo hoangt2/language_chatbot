@@ -179,18 +179,20 @@ async def vocab_pic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Mikä tämä on?")
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": 'Give a random noun to describe daily objects in English B2 level. Try to be diverse in the topic or category of that word'}]
+        messages=[{"role": "user", "content": 'Randomly choose a word from a B2 language level vocabulary list, which describes things around a person in daily live'}]
     )
 
     new_word = response["choices"][0]["message"]["content"]
     logger.info("The new word is " + new_word)
 
-    output = replicate.run(
-        "stability-ai/stable-diffusion:db21e45d3f7023abc2a46ee38a23973f6dce16bb082a930b0c49861f96d1e5bf",
-        input={"prompt": new_word}
-    )
-    urllib.request.urlretrieve(output[0], 'word.jpg')
-    await context.bot.send_photo(chat_id=context._chat_id, photo=output[0])
+    # Generate image
+    response = openai.Image.create(
+        prompt= f'Realistic photo of {new_word}, simple background',
+        n=1,
+        size="512x512")
+    image_url = response['data'][0]['url']
+    
+    await context.bot.send_photo(chat_id=context._chat_id, photo=image_url)
 
     logger.info("Bot have sent the picture to user")
 
@@ -207,21 +209,24 @@ async def vocab_pic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("The word in Finnish is: " + vocab_word_FI)
 
     user_data = context.user_data
-    user_data['vocab_word'] = vocab_word_FI
+    user_data['vocab_word'] = new_word
+    user_data['vocab_word_FI'] = vocab_word_FI
 
     return ANSWER_VOCAB_PIC
 
 async def _answer_vocab_pic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    vocab_word_FI = context.user_data['vocab_word']
+    vocab_word = context.user_data['vocab_word']
+    vocab_word_FI = context.user_data['vocab_word_FI']
 
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=[{'role':'system','content': 'Check if the input word is matched or a synonym with the correct word which is' + vocab_word_FI +'. If it is correct, say congratulation, if not correct, show the correct word and its meaning in English'},
+        messages=[{'role':'system','content': 'Check if the word is matched or a synonym with the correct word which is' + vocab_word_FI +'. If it is correct, say congratulation, if not correct, show the correct word and explain it in English'},
                   {'role':'user','content': update.message.text}
                   ]
     )
     ChatGPT_reply = response["choices"][0]["message"]["content"]
-    await update.message.reply_text(text=f"{ChatGPT_reply}", parse_mode= 'MARKDOWN')
+
+    await update.message.reply_text(text=f"{ChatGPT_reply}\nAnswer: {vocab_word_FI} ( {vocab_word} )", parse_mode= 'MARKDOWN')
 
     reply_keyboard = [['OK next one!']]
     await update.message.reply_text('Do you want to continue?',
