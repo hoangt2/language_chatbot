@@ -26,10 +26,11 @@ logger = logging.getLogger(__name__)
 
 ### START MENU
 
-MODE, CHAT, MENU_LANGUAGE, TEXT_TO_TRANSLATE, MENU_PHOTO_CAPTION, PHOTO_CAPTION = range (6)
+MODE, CHAT, MENU_LANGUAGE, TEXT_TO_TRANSLATE, MENU_PHOTO_CAPTION, PHOTO_CAPTION, START_VOCAB_PIC, VOCAB_PIC, ANSWER_VOCAB_PIC = range (9)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    reply_keyboard = [["Generic Chat", "Translation", "Photo Caption"]]
+    reply_keyboard = [["Translation", "Photo Caption", 'Vocabulary Pics'],
+                      ["Generic Chat"]]
     await update.message.reply_text(
         "Hello, I am your Finnish languague trainer.\n\nYou can send a text to translate, a photo, a voice message or just simply chat\n\nChoose the chat mode:",
         reply_markup=ReplyKeyboardMarkup(
@@ -163,6 +164,73 @@ async def photo_caption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     return PHOTO_CAPTION
 
+### VOCABULARY PICS
+async def _start_vocab_pic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    reply_keyboard = [['OK send me the pic']]
+    await update.message.reply_text(
+        "In this exercise, you will receive a pic and try to describe it in Finnish",
+        reply_markup=ReplyKeyboardMarkup(
+            reply_keyboard, one_time_keyboard=True, input_field_placeholder="I am ready!"
+        ),
+    )
+    return VOCAB_PIC
+
+async def vocab_pic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("Mikä tämä on?")
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": 'Give a random noun to describe daily objects in English B2 level. Try to be diverse in the topic or category of that word'}]
+    )
+
+    new_word = response["choices"][0]["message"]["content"]
+    logger.info("The new word is " + new_word)
+
+    output = replicate.run(
+        "stability-ai/stable-diffusion:db21e45d3f7023abc2a46ee38a23973f6dce16bb082a930b0c49861f96d1e5bf",
+        input={"prompt": new_word}
+    )
+    urllib.request.urlretrieve(output[0], 'word.jpg')
+    await context.bot.send_photo(chat_id=context._chat_id, photo=output[0])
+
+    logger.info("Bot have sent the picture to user")
+
+
+    # Translate the new word to Finnish
+    response_FI = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{'role':'system','content': 'Translate this word to Finnish: '},
+                  {'role':'user','content': new_word}
+                  ]
+    )
+    vocab_word_FI = response_FI["choices"][0]["message"]["content"]
+
+    logger.info("The word in Finnish is: " + vocab_word_FI)
+
+    user_data = context.user_data
+    user_data['vocab_word'] = vocab_word_FI
+
+    return ANSWER_VOCAB_PIC
+
+async def _answer_vocab_pic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    vocab_word_FI = context.user_data['vocab_word']
+
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{'role':'system','content': 'Check if the input word is matched or a synonym with the correct word which is' + vocab_word_FI +'. If it is correct, say congratulation, if not correct, show the correct word and its meaning in English'},
+                  {'role':'user','content': update.message.text}
+                  ]
+    )
+    ChatGPT_reply = response["choices"][0]["message"]["content"]
+    await update.message.reply_text(text=f"{ChatGPT_reply}", parse_mode= 'MARKDOWN')
+
+    reply_keyboard = [['OK next one!']]
+    await update.message.reply_text('Do you want to continue?',
+        reply_markup=ReplyKeyboardMarkup(
+            reply_keyboard, one_time_keyboard=True, input_field_placeholder="Let's continue"
+        ),
+    )
+    return START_VOCAB_PIC
+
 ### End the chat
 async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Quit chat"""
@@ -183,6 +251,7 @@ def main() -> None:
                 MessageHandler(filters.Regex('^(Generic Chat)$'), generic_chat),
                 MessageHandler(filters.Regex('^(Translation)$'), translate),
                 MessageHandler(filters.Regex('^(Photo Caption)$'), _start_photo_caption),
+                MessageHandler(filters.Regex('^(Vocabulary Pics)$'), _start_vocab_pic)
             ],
             CHAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, generic_chat),
                    MessageHandler(filters.VOICE & ~filters.COMMAND, voice_message),
@@ -191,6 +260,9 @@ def main() -> None:
             MENU_LANGUAGE: [MessageHandler(filters.Regex("^(🇫🇮 Finnish|🇬🇧 English|🇮🇹 Italian)$"), _start_translation)],
             TEXT_TO_TRANSLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_translate)],
             PHOTO_CAPTION: [MessageHandler(filters.PHOTO & ~filters.COMMAND, photo_caption)],
+            START_VOCAB_PIC: [MessageHandler(filters.Regex('^(OK next one!)$'), _start_vocab_pic)],
+            VOCAB_PIC: [MessageHandler(filters.TEXT & ~filters.COMMAND, vocab_pic)],
+            ANSWER_VOCAB_PIC: [MessageHandler(filters.TEXT & ~filters.COMMAND, _answer_vocab_pic)],
         },
         fallbacks=[CommandHandler("quit", quit),
                    CommandHandler('menu', start),
